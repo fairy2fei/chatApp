@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title></title>
+    <meta http-equiv="content-type" content="text/html;charset=utf-8">
+    <style>
+        p {
+            text-align: left;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+<div style="width: 800px;height: 600px;margin: 30px auto;text-align: center">
+    <h1>Chat App</h1>
+    <div style="width: 800px;border: 1px solid gray;height: 300px;">
+        <div style="width: 200px;height: 300px;float: left;text-align: left;">
+            <p><span>Online Number:</span><span id="user_num">0</span></p>
+            <div id="user_list" style="overflow: auto;">
+            </div>
+        </div>
+        <div id="msg_list" style="width: 598px;border:  1px solid gray; height: 300px;overflow: scroll;float: left;">
+        </div>
+    </div>
+    <br>
+    <div style="width: 150px;float: left;">
+    <form action="" method="get">
+    <label>Destination : </label>
+    <select id="select_list"><option value='all' selected='selected'>All</option></select>
+    </form>
+    </div>
+    <textarea id="msg_box" rows="6" cols="65" onkeydown="confirm(event)"></textarea>
+    <div style="width: 50px;float: right;">
+    <input type="button" value="Send" onclick="send()">
+    </div>
+</div>
+</body>
+</html>
+
+<script type="text/javascript">
+    var username = prompt('Please enter a username', 'user' + uuid(8, 16));
+    var ws = new WebSocket("ws://127.0.0.1:8080");
+    ws.onopen = function () {
+        var data = "System message: The connection is established successfully.";
+        listMsg(data);
+    };
+
+    /**
+     * Analyze the message from server
+     * msg.type : user;system;handshake;login;logout;
+     * msg.from : message resource
+     * msg.content: message content
+     */
+    ws.onmessage = function (e) {
+        var msg = JSON.parse(e.data);
+        var sender, user_name, name_list, change_type;
+        switch (msg.type) {
+            case 'system':
+                sender = 'System message: ';
+                break;
+            case 'user':
+                sender = msg.from + ' to all: ';
+                break;
+            case 'private':
+            	if(username == msg.to){
+            		sender = msg.from + ' to ' + msg.to + ': ';
+            		break;
+            	}else{
+            		return;
+            	}
+            case 'handshake':
+                var user_info = {'type': 'login', 'content': username};
+                sendMsg(user_info);
+                return;
+            case 'login':
+            case 'logout':
+                user_name = msg.content;
+                name_list = msg.user_list;
+                change_type = msg.type;
+                handleUser(user_name, change_type, name_list);
+                return;
+        }
+        var data = sender + msg.content;
+        listMsg(data);
+    };
+    ws.onerror = function () {
+        var data = "System Message: An error has occurred, please exit and try again.";
+        listMsg(data);
+    };
+
+    /**
+     * Send a message when press the Enter button in the input box
+     * @param event
+     * @returns {boolean}
+     */
+    function confirm(event) {
+        var key_num = event.keyCode;
+        if (key_num == 13) {
+            send();
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Send and clear the message in the input box
+     */
+    function send() {
+        var msg_box = document.getElementById("msg_box");
+        var content = msg_box.value;
+        var reg = new RegExp("\r\n", "g");
+        content = content.replace(reg, "");
+        var select_list = document.getElementById("select_list");
+        var index = select_list.selectedIndex;
+        var text = select_list.options[index].text;
+        console.log(text);
+        if(text == "All"){
+        	var msg = {'content': content.trim(), 'type': 'user'};
+            sendMsg(msg);
+        }else{
+        	var msg = {'content': content.trim(), 'type': 'private', 'destination': text };
+        	sender = username + ' to ' + text + ': ';
+        	var data = sender + msg.content;
+        	listMsg(data);
+        	sendMsg(msg);
+        }
+        msg_box.value = '';
+    }
+
+    /**
+     * Add the message to the output box and scroll the scroll bar to the bottom
+     */
+    function listMsg(data) {
+        var msg_list = document.getElementById("msg_list");
+        var msg = document.createElement("p");
+        msg.innerHTML = data;
+        msg_list.appendChild(msg);
+        msg_list.scrollTop = msg_list.scrollHeight;
+    }
+
+    /**
+     * Handle login message of user
+     * @param user_name
+     * @param type  login/logout
+     * @param name_list 
+     */
+    function handleUser(user_name, type, name_list) {
+        var user_list = document.getElementById("user_list");
+        var user_num = document.getElementById("user_num");
+        var select_list = document.getElementById("select_list");
+        while(user_list.hasChildNodes()) {
+            user_list.removeChild(user_list.firstChild);
+        }
+        while(select_list.hasChildNodes()) {
+            select_list.removeChild(select_list.firstChild);
+        }
+
+        for (var index in name_list) {
+            var user = document.createElement("p");
+            user.innerHTML = name_list[index];
+            user_list.appendChild(user);
+            var opt = document.createElement('option');
+            opt.appendChild(document.createTextNode(name_list[index]));
+            opt.value = index;
+            select_list.appendChild(opt); 
+        }
+        opt = document.createElement('option');
+        opt.appendChild(document.createTextNode('All'));
+        opt.value = 'all';
+        opt.selected = 'selected';
+        select_list.appendChild(opt);
+        user_num.innerHTML = name_list.length;
+        user_list.scrollTop = user_list.scrollHeight;
+        var state = type == 'login' ? 'Online' : 'Offline';
+        var data = 'System Message: ' + user_name + ' is ' + state;
+        listMsg(data);
+    }
+
+    /**
+     * Convert data to json and send
+     * @param msg
+     */
+    function sendMsg(msg) {
+        var data = JSON.stringify(msg);
+        ws.send(data);
+    }
+
+    /**
+     * Create a uuid as the default value for the username
+     * @param len
+     * @param radix
+     * @returns {string}
+     */
+    function uuid(len, radix) {
+        var chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'.split('');
+        var uuid = [], i;
+        radix = radix || chars.length;
+        if (len) {
+            for (i = 0; i < len; i++) uuid[i] = chars[0 | Math.random() * radix];
+        } else {
+            var r;
+            uuid[8] = uuid[13] = uuid[18] = uuid[23] = '-';
+            uuid[14] = '4';
+            for (i = 0; i < 36; i++) {
+                if (!uuid[i]) {
+                    r = 0 | Math.random() * 16;
+                    uuid[i] = chars[(i == 19) ? (r & 0x3) | 0x8 : r];
+                }
+            }
+        }
+        return uuid.join('');
+    }
+</script>
