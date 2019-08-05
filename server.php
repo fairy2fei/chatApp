@@ -1,8 +1,8 @@
 <?php
 error_reporting(E_ALL);
+require(__DIR__ . '/connection.php');
 set_time_limit(0);// no time limit is imposed
 date_default_timezone_set('Europe/Amsterdam');
-
 class WebSocket {
     const LOG_PATH = __DIR__ . '/tmp/';
     const LISTEN_SOCKET_NUM = 9;
@@ -119,6 +119,7 @@ class WebSocket {
         $recv_msg = [
             'type' => 'logout',
             'content' => $this->sockets[(int)$socket]['username'],
+            'id' => $this->sockets[(int)$socket]['userid'],
         ];
         socket_getpeername($socket, $ip, $port);
         $this->writeLog([
@@ -229,41 +230,82 @@ class WebSocket {
      *          ]
      */
     private function handleMsg($socket, $recv_msg) {
+        global $db;
         $msg_type = $recv_msg['type'];
         $msg_content = $recv_msg['content'];
         $response = [];
 
         switch ($msg_type) {
             case 'login':
+                echo('login');
+                echo($msg_content);
+                $user_list = array();
                 $this->sockets[(int)$socket]['username'] = $msg_content;
-                $user_list = array_column($this->sockets, 'username');
+                //$user_list = array_column($this->sockets, 'username');                
+                $sql = "INSERT INTO users (name) VALUES (:name)";
+                $stmt = $db ->prepare($sql);
+                $stmt -> execute(['name' => $msg_content]);
+                $sql = 'SELECT id FROM users WHERE name = :name ORDER BY t DESC';
+                $stmt = $db -> prepare($sql);
+                $stmt -> execute(['name' => $msg_content]);
+                $row = $stmt -> fetch(PDO::FETCH_NUM);
+                $this->sockets[(int)$socket]['userid'] = $row[0];
+                $user_list_name = array_column($this->sockets, 'username'); 
+                $user_list_id = array_column($this->sockets, 'userid');
+                for($i =0; $i < count($user_list_name); $i++){
+                    $user_list[] = $user_list_name[$i]."(".strval($user_list_id[$i]).")";
+                }
                 $response['type'] = 'login';
                 $response['content'] = $msg_content;
+                $response['id'] = $row[0];
                 $response['user_list'] = $user_list;
                 break;
             case 'logout':
-                $user_list = array_column($this->sockets, 'username');
+                $user_list_name = array_column($this->sockets, 'username');
+                $user_list_id = array_column($this->sockets, 'userid');
+                for($i =0; $i < count($user_list_name); $i++){
+                    $user_list[] = $user_list_name[$i]."(".strval($user_list_id[$i]).")";
+                }
+                $response['id'] = $recv_msg['id'];
                 $response['type'] = 'logout';
                 $response['content'] = $msg_content;
                 $response['user_list'] = $user_list;
                 break;
             case 'user':
                 $username = $this->sockets[(int)$socket]['username'];
+                $userid = $this->sockets[(int)$socket]['userid'];
+                $sql = "INSERT INTO bcmessages ('from','body') VALUES (:from, :body)";
+                $stmt = $db->prepare($sql);
+                $stmt->bindParam(':from', $userid);
+                $stmt->bindParam(':body', $msg_content);
+                $stmt->execute();
                 $response['type'] = 'user';
                 $response['from'] = $username;
+                $response['fromid'] = $userid;
                 $response['content'] = $msg_content;
                 break;
             case 'private':
                 $msg_desti = $recv_msg['destination'];
+                preg_match_all ("/(?:\()(.*)(?:\))/i", $msg_desti, $result);
+                $toid = $result[1][0];
+                $toname = substr($msg_desti,0,strpos($msg_desti, '('));
                 $username = $this->sockets[(int)$socket]['username'];
+                $userid = $this->sockets[(int)$socket]['userid'];
+                $sql = "INSERT INTO messages ('from','to','body') VALUES (:from,:to,:body)";
+                $stmt = $db->prepare($sql);
+                $stmt->bindParam(':from', $userid);
+                $stmt->bindParam(':to', $toid);
+                $stmt->bindParam(':body', $msg_content);
+                $stmt->execute();
                 $response['type'] = 'private';
                 $response['from'] = $username;
-                $response['to'] = $msg_desti;
+                $response['fromid'] = $userid;
+                $response['to'] = $toname;
+                $response['toid'] = $toid;
                 $response['content'] = $msg_content;
                 $data = $this->build(json_encode($response));
                 foreach ($this->sockets as $socket) {
-                    echo($socket);
-                    if ($socket['username'] == $msg_desti) {
+                    if ($socket['username'] == $toname && $socket['userid'] == $toid ) {
                         socket_write($socket['resource'], $data, strlen($data));
                     }              
                 }

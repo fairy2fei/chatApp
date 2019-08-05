@@ -38,6 +38,7 @@
 </html>
 
 <script type="text/javascript">
+	var user_id;
     var username = prompt('Please enter a username', 'user' + uuid(8, 16));
     var ws = new WebSocket("ws://127.0.0.1:8080");
     ws.onopen = function () {
@@ -59,11 +60,11 @@
                 sender = 'System message: ';
                 break;
             case 'user':
-                sender = msg.from + ' to all: ';
+                sender = msg.from +'('+msg.fromid+') to all: ';
                 break;
             case 'private':
             	if(username == msg.to){
-            		sender = msg.from + ' to ' + msg.to + ': ';
+            		sender = msg.from + '('+ msg.fromid +') to ' + msg.to + '('+ msg.toid + '): ';
             		break;
             	}else{
             		return;
@@ -74,10 +75,11 @@
                 return;
             case 'login':
             case 'logout':
+            	user_id = msg.id;
                 user_name = msg.content;
                 name_list = msg.user_list;
                 change_type = msg.type;
-                handleUser(user_name, change_type, name_list);
+                handleUser(user_id, user_name, change_type, name_list);
                 return;
         }
         var data = sender + msg.content;
@@ -144,7 +146,7 @@
      * @param type  login/logout
      * @param name_list 
      */
-    function handleUser(user_name, type, name_list) {
+    function handleUser(user_id, user_name, type, name_list) {
         var user_list = document.getElementById("user_list");
         var user_num = document.getElementById("user_num");
         var select_list = document.getElementById("select_list");
@@ -172,7 +174,7 @@
         user_num.innerHTML = name_list.length;
         user_list.scrollTop = user_list.scrollHeight;
         var state = type == 'login' ? 'Online' : 'Offline';
-        var data = 'System Message: ' + user_name + ' is ' + state;
+        var data = 'System Message: ' + user_name +'(' + user_id + ') is ' + state;
         listMsg(data);
     }
 
